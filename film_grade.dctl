@@ -49,7 +49,7 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
 	// TODO grain ?
 	rgb = desat_highlights(rgb, 0.125f);
 	rgb = naka_rushton(rgb, 0.75f);
-	// TODO fog ?
+	// TODO fog ? test
 
 	return rgb;
 }
