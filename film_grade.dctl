@@ -1,10 +1,16 @@
+DEFINE_UI_PARAMS(EXPOSURE, Exposure, DCTLUI_SLIDER_FLOAT, -0.5, -4, 4, 0.001);
+DEFINE_UI_PARAMS(CONTRAST, Contrast, DCTLUI_SLIDER_FLOAT, 0.85, 0.5, 1, 0.001);
+DEFINE_UI_PARAMS(SATURATION, Saturation, DCTLUI_SLIDER_FLOAT, 1.0, 0, 2, 0.001);
+DEFINE_UI_PARAMS(HL_DESAT, Desaturate Highlights, DCTLUI_SLIDER_FLOAT, 1.0, 0, 2, 0.001);
+
+
 __DEVICE__ float3 exposure(float3 rgb, float stops) {
 	
-	const float e = pow(2, stops);
+	const float e = pow(2.0f, stops);
 	
-	r = sat * rgb[0] * e;
-	g = sat * rgb[1] * e;
-	b = sat * rgb[2] * e;
+	float r = rgb.x * e;
+	float g = rgb.y * e;
+	float b = rgb.z * e;
 
 	return make_float3(r, g, b);
 }
@@ -13,14 +19,14 @@ __DEVICE__ float3 saturation(float3 rgb, float stops) {
 	return rgb;  // TODO 
 }
 
-__DEVICE__ float3 desat_highlights(float3 rgb, float strength) {
+__DEVICE__ float3 highlight_desat(float3 rgb, float saturation, float strength) {
 	
-	float bw = max(rgb[0], rgb[1], rgb[2]);  // TODO better luma method
-	float sat = exp(- strength * bw);
+	float bw = (rgb.x + rgb.y + rgb.z) / 3.0f;  // TODO better luma method
+	float sat = saturation * exp(- strength * bw);
 	
-	r = sat * rgb[0] + (1 - sat) * bw;
-	g = sat * rgb[1] + (1 - sat) * bw;
-	b = sat * rgb[2] + (1 - sat) * bw;
+	float r = sat * rgb.x + (1 - sat) * bw;
+	float g = sat * rgb.y + (1 - sat) * bw;
+	float b = sat * rgb.z + (1 - sat) * bw;
 
 	return make_float3(r, g, b);
 }
@@ -28,27 +34,32 @@ __DEVICE__ float3 desat_highlights(float3 rgb, float strength) {
 __DEVICE__ float3 naka_rushton(float3 rgb, float strength) {
 	
 	// const float strength;  // 0-1, 0.5 -> rh
-	const float power = 1.57079633 * strength;  // 0.25 * tau * strength
+	const float power = tan(1.57079633 * strength);  // 0.25 * tau * strength
 
 	const float h = 0.5f;
 	
-	float r = pow(rgb[0], power) / (pow(rgb[0], power) + pow(h, power));
-	float g = pow(rgb[1], power) / (pow(rgb[1], power) + pow(h, power));
-	float b = pow(rgb[2], power) / (pow(rgb[2], power) + pow(h, power));
+	float r = pow(rgb.x, power) / (pow(rgb.x, power) + pow(h, power));
+	float g = pow(rgb.y, power) / (pow(rgb.y, power) + pow(h, power));
+	float b = pow(rgb.z, power) / (pow(rgb.z, power) + pow(h, power));
 
 	return make_float3(r, g, b);
 }
+
+
+
+
+
 
 __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B) {	
 	
 	float3 rgb = make_float3(p_R, p_G, p_B);
 
-	rgb = exposure(rgb, 0.0f);
-	rgb = saturation(rgb, 0.0f);
-	// TODO grade
-	// TODO grain ?
-	rgb = desat_highlights(rgb, 0.125f);
-	rgb = naka_rushton(rgb, 0.75f);
+	rgb = exposure(rgb, EXPOSURE);
+	// rgb = saturation(rgb, 0.0f);
+	// // TODO grade
+	// // TODO grain ?
+	rgb = highlight_desat(rgb, SATURATION, HL_DESAT);
+	rgb = naka_rushton(rgb, CONTRAST);
 	// TODO fog ?
 
 	return rgb;
