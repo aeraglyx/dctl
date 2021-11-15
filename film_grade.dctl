@@ -1,7 +1,14 @@
-DEFINE_UI_PARAMS(EXPOSURE, Exposure, DCTLUI_SLIDER_FLOAT, -0.5, -4, 4, 0.001);
+DEFINE_UI_PARAMS(EXPOSURE, Exposure, DCTLUI_SLIDER_FLOAT, 0.0, -4, 4, 0.001);
 DEFINE_UI_PARAMS(CONTRAST, Contrast, DCTLUI_SLIDER_FLOAT, 0.85, 0.5, 1, 0.001);
-DEFINE_UI_PARAMS(SATURATION, Saturation, DCTLUI_SLIDER_FLOAT, 1.0, 0, 2, 0.001);
-DEFINE_UI_PARAMS(HL_DESAT, Desaturate Highlights, DCTLUI_SLIDER_FLOAT, 1.0, 0, 2, 0.001);
+
+DEFINE_UI_PARAMS(TEMP, Temperature, DCTLUI_SLIDER_FLOAT, 0.0, -1, 1, 0.001);
+DEFINE_UI_PARAMS(TINT, Tint, DCTLUI_SLIDER_FLOAT, 0.0, -1, 1, 0.001);
+
+DEFINE_UI_PARAMS(SATURATION, Saturation, DCTLUI_SLIDER_FLOAT, 1.125, 0, 2, 0.001);
+DEFINE_UI_PARAMS(HL_DESAT, Desaturate Highlights, DCTLUI_SLIDER_FLOAT, 0.5, 0, 2, 0.001);
+DEFINE_UI_PARAMS(SAT_OFFSET, Sat Offset, DCTLUI_SLIDER_FLOAT, 0.5, 0, 2, 0.001);
+
+DEFINE_UI_PARAMS(TYPE, Type, DCTLUI_COMBO_BOX, 0, { AVG, LEN }, { Avg, Length} )
 
 
 __DEVICE__ float3 exposure(float3 rgb, float stops) {
@@ -15,14 +22,43 @@ __DEVICE__ float3 exposure(float3 rgb, float stops) {
 	return make_float3(r, g, b);
 }
 
-__DEVICE__ float3 saturation(float3 rgb, float stops) {
-	return rgb;  // TODO 
+__DEVICE__ float3 white_balance(float3 rgb, float temp, float tint) {
+
+	float r = rgb.x * (1.0f + 1.0f/2.0f * temp + 1.0f/3.0f * tint);
+	float g = rgb.y * (1.0f                    - 2.0f/3.0f * tint);
+	float b = rgb.z * (1.0f - 1.0f/2.0f * temp + 1.0f/3.0f * tint);
+
+	return make_float3(r, g, b);
 }
 
-__DEVICE__ float3 highlight_desat(float3 rgb, float saturation, float strength) {
+__DEVICE__ float black_and_white(float3 rgb) {
+	// float bw;
+	// if (TYPE == AVG) {
+	// 	bw = (rgb.x + rgb.y + rgb.z) / 3.0f;
+	// }
+	// else if (TYPE == LEN) {
+	// 	float bw = sqrt(pow(rgb.x, 2.0f) + pow(rgb.y, 2.0f) + pow(rgb.z, 2.0f));
+	// return sqrt(pow(rgb.x, 2.0f) + pow(rgb.y, 2.0f) + pow(rgb.z, 2.0f));
+	return (rgb.x + rgb.y + rgb.z) / 3.0f;
+}
+
+__DEVICE__ float3 saturation(float3 rgb, float sat) {
 	
-	float bw = (rgb.x + rgb.y + rgb.z) / 3.0f;  // TODO better luma method
-	float sat = saturation * exp(- strength * bw);
+	// float bw = (rgb.x + rgb.y + rgb.z) / 3.0f;  // TODO better luma method
+	float bw = black_and_white(rgb);
+
+	float r = sat * rgb.x + (1 - sat) * bw;
+	float g = sat * rgb.y + (1 - sat) * bw;
+	float b = sat * rgb.z + (1 - sat) * bw;
+
+	return make_float3(r, g, b);
+}
+
+__DEVICE__ float3 highlight_desat(float3 rgb, float saturation, float strength, float sat_offset) {
+	
+	// float bw = (rgb.x + rgb.y + rgb.z) / 3.0f;
+	float bw = black_and_white(rgb);  // TODO to main (calculated twice)
+	float sat = saturation * exp(- strength * (bw - sat_offset));
 	
 	float r = sat * rgb.x + (1 - sat) * bw;
 	float g = sat * rgb.y + (1 - sat) * bw;
@@ -54,11 +90,19 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
 	
 	float3 rgb = make_float3(p_R, p_G, p_B);
 
+	// if (TYPE == AVG) {
+	// 	float bw = (rgb.x + rgb.y + rgb.z) / 3.0f;
+	// }
+	// else if (TYPE == LEN) {
+	// 	float bw = sqrt(pow(rgb.x, 2.0f) + pow(rgb.y, 2.0f) + pow(rgb.z, 2.0f));
+	// }
+
 	rgb = exposure(rgb, EXPOSURE);
-	// rgb = saturation(rgb, 0.0f);
+	rgb = saturation(rgb, SATURATION);
+	rgb = white_balance(rgb, TEMP, TINT);
 	// // TODO grade
 	// // TODO grain ?
-	rgb = highlight_desat(rgb, SATURATION, HL_DESAT);
+	rgb = highlight_desat(rgb, 1.0f, HL_DESAT, SAT_OFFSET);
 	rgb = naka_rushton(rgb, CONTRAST);
 	// TODO fog ?
 
