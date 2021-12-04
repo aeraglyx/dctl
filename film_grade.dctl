@@ -1,13 +1,16 @@
 DEFINE_UI_PARAMS(EXPOSURE, Exposure, DCTLUI_SLIDER_FLOAT, 0.0, -4, 4, 0.001);
-DEFINE_UI_PARAMS(CONTRAST, Contrast, DCTLUI_SLIDER_FLOAT, 0.85, 0.5, 1, 0.001);
+DEFINE_UI_PARAMS(CONTRAST, Contrast, DCTLUI_SLIDER_FLOAT, 0.8, 0.5, 1, 0.001);
 
-DEFINE_UI_PARAMS(WB_TYPE, WB Type, DCTLUI_COMBO_BOX, 0, {SIMPLE, EXP}, {Simple, Exponential})
+// DEFINE_UI_PARAMS(WB_TYPE, WB Type, DCTLUI_COMBO_BOX, 0, {SIMPLE, EXP}, {Simple, Exponential})
 DEFINE_UI_PARAMS(TEMP, Temperature, DCTLUI_SLIDER_FLOAT, 0.0, -1, 1, 0.001);
 DEFINE_UI_PARAMS(TINT, Tint, DCTLUI_SLIDER_FLOAT, 0.0, -1, 1, 0.001);
 
-DEFINE_UI_PARAMS(SATURATION, Saturation, DCTLUI_SLIDER_FLOAT, 1.125, 0, 2, 0.001);
+DEFINE_UI_PARAMS(SPLIT_TEMP, Split Temperature, DCTLUI_SLIDER_FLOAT, 0.0, -1, 1, 0.001);
+DEFINE_UI_PARAMS(SPLIT_TINT, Split Tint, DCTLUI_SLIDER_FLOAT, 0.0, -1, 1, 0.001);
+
+DEFINE_UI_PARAMS(SATURATION, Saturation, DCTLUI_SLIDER_FLOAT, 1.0, 0, 2, 0.001);
 DEFINE_UI_PARAMS(HL_DESAT, Desaturate Highlights, DCTLUI_SLIDER_FLOAT, 0.5, 0, 2, 0.001);
-DEFINE_UI_PARAMS(SAT_OFFSET, Sat Offset, DCTLUI_SLIDER_FLOAT, 0.0, 0, 2, 0.001);
+// DEFINE_UI_PARAMS(SAT_OFFSET, Sat Offset, DCTLUI_SLIDER_FLOAT, 0.0, 0, 2, 0.001);
 
 // DEFINE_UI_PARAMS(TYPE, Type, DCTLUI_COMBO_BOX, 0, { AVG, LEN }, { Avg, Length} )
 
@@ -70,11 +73,12 @@ __DEVICE__ float3 saturation(float3 rgb, float sat) {
 	return make_float3(r, g, b);
 }
 
-__DEVICE__ float3 highlight_desat(float3 rgb, float saturation, float strength, float sat_offset) {
+__DEVICE__ float3 highlight_desat(float3 rgb, float saturation, float strength) {
 	
 	// float bw = (rgb.x + rgb.y + rgb.z) / 3.0f;
 	float bw = black_and_white(rgb);  // TODO to main (calculated twice)
-	float sat = saturation * exp(strength * (sat_offset - bw));
+	// float sat = saturation * exp(strength * (sat_offset - bw));
+	float sat = saturation * exp(strength * (- bw));
 	
 	float r = sat * rgb.x + (1 - sat) * bw;
 	float g = sat * rgb.y + (1 - sat) * bw;
@@ -109,15 +113,49 @@ __DEVICE__ float3 s_curve(float3 rgb, float strength) {
 }
 
 __DEVICE__ float3 naka_rushton(float3 rgb, float strength) {
+
+	// , float split_temp, float split_tint
 	
 	// const float strength;  // 0-1, 0.5 -> rh
 	const float power = tan(1.57079633 * strength);  // 0.25 * tau * strength
 
 	const float h = 0.5f;
+
+	// float split_r = exp(  1.0f/2.0f * split_temp) * exp(  1.0f/3.0f * split_tint);
+	// float split_g =                                 exp(- 2.0f/3.0f * split_tint);
+	// float split_b = exp(- 1.0f/2.0f * split_temp) * exp(  1.0f/3.0f * split_tint);
 	
 	float r = pow(rgb.x, power) / (pow(rgb.x, power) + pow(h, power));
 	float g = pow(rgb.y, power) / (pow(rgb.y, power) + pow(h, power));
 	float b = pow(rgb.z, power) / (pow(rgb.z, power) + pow(h, power));
+	
+	// float r = pow(2 * rgb.x, power * split_r) / (pow(2 * rgb.x, power * split_r) + 1);
+	// float g = pow(2 * rgb.y, power * split_g) / (pow(2 * rgb.y, power * split_g) + 1);
+	// float b = pow(2 * rgb.z, power * split_b) / (pow(2 * rgb.z, power * split_b) + 1);
+
+	return make_float3(r, g, b);
+}
+
+// __DEVICE__ float3 constrained_rh(float3 rgb, float c, float l) {
+	
+// 	const float b = pow(pow(l, 1/c) - 1, c);
+	
+// 	float r = rgb.x / pow(1 + pow((rgb.x * b / l), 1 / c), c);
+// 	float g = rgb.g / pow(1 + pow((rgb.g * b / l), 1 / c), c);
+// 	float b = rgb.b / pow(1 + pow((rgb.b * b / l), 1 / c), c);
+
+// 	return make_float3(r, g, b);
+// }
+
+__DEVICE__ float3 split_toning(float3 rgb, float split_temp, float split_tint) {
+
+	float split_r = exp(  1.0f/2.0f * split_temp) * exp(  1.0f/3.0f * split_tint);
+	float split_g =                                 exp(- 2.0f/3.0f * split_tint);
+	float split_b = exp(- 1.0f/2.0f * split_temp) * exp(  1.0f/3.0f * split_tint);
+	
+	float r = 0.5f * pow(2.0f * rgb.x, split_r);
+	float g = 0.5f * pow(2.0f * rgb.y, split_g);
+	float b = 0.5f * pow(2.0f * rgb.z, split_b);
 
 	return make_float3(r, g, b);
 }
@@ -143,18 +181,18 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
 	rgb = exposure(rgb, EXPOSURE);
 	rgb = saturation(rgb, SATURATION);
 
-	if (WB_TYPE == EXP) {
-		rgb = white_balance_v2(rgb, TEMP, TINT);
-	} else {
-		rgb = white_balance(rgb, TEMP, TINT);
-	}
+	// if (WB_TYPE == EXP) {
+	// 	rgb = white_balance_v2(rgb, TEMP, TINT);
+	// } else {
+	// 	rgb = white_balance(rgb, TEMP, TINT);
+	// }
 
-	rgb = highlight_desat(rgb, 1.0f, HL_DESAT, SAT_OFFSET);
-
-
+	rgb = white_balance_v2(rgb, TEMP, TINT);
+	rgb = highlight_desat(rgb, 1.0f, HL_DESAT);
 
 	// rgb = naka_rushton(rgb, CONTRAST);
 
+	rgb = split_toning(rgb, SPLIT_TEMP, SPLIT_TINT);
 	rgb = reinhard(rgb);
 	rgb = s_curve(rgb, CONTRAST);
 
